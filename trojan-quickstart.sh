@@ -12,14 +12,14 @@ function prompt() {
 }
 
 function stopTrojan(){
-    colorEcho ${BLUE} "Shutting down Trojan service."
+    echo "Shutting down Trojan service."
     if [[ -n "${SYSTEMCTL_CMD}" ]] || [[ -f "/lib/systemd/system/trojan.service" ]] || [[ -f "/etc/systemd/system/trojan.service" ]]; then
         ${SYSTEMCTL_CMD} stop trojan
     elif [[ -n "${SERVICE_CMD}" ]] || [[ -f "/etc/init.d/trojan" ]]; then
         ${SERVICE_CMD} trojan stop
     fi
     if [[ $? -ne 0 ]]; then
-        colorEcho ${YELLOW} "Failed to shutdown Trojan service."
+        echo "Failed to shutdown Trojan service."
         return 2
     fi
     return 0
@@ -32,7 +32,7 @@ function startTrojan(){
         ${SERVICE_CMD} trojan start
     fi
     if [[ $? -ne 0 ]]; then
-        colorEcho ${YELLOW} "Failed to start Trojan service."
+        echo "Failed to start Trojan service."
         return 2
     fi
     return 0
@@ -49,8 +49,7 @@ if [[ $(uname -m 2> /dev/null) != x86_64 ]]; then
 fi
 
 NAME=trojan
-VER="$(/usr/local/bin/trojan -v 2>&1)"
-CUR_VER=$(echo $VER | grep -i "^welcome" |sed 's|^\(Welcome to trojan \)\([0-9]*\.[0-9]*\.[0-9]*$\)|\2|')
+[[ -f /usr/local/bin/trojan ]] && VER="$(/usr/local/bin/trojan -v 2>&1)" && CUR_VER=$(echo $VER | grep -i "^welcome" |sed 's|^\(Welcome to trojan \)\([0-9]*\.[0-9]*\.[0-9]*$\)|\2|') || CUR_VER=Null;
 NEW_VER=`curl -s https://api.github.com/repos/trojan-gfw/$NAME/releases/latest | grep 'tag_name' | cut -d\" -f4 | awk -F "v" '{print $2}'`
 
 if [[ $NEW_VER == $CUR_VER ]];then
