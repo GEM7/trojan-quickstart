@@ -11,6 +11,33 @@ function prompt() {
     done
 }
 
+function stopTrojan(){
+    colorEcho ${BLUE} "Shutting down Trojan service."
+    if [[ -n "${SYSTEMCTL_CMD}" ]] || [[ -f "/lib/systemd/system/trojan.service" ]] || [[ -f "/etc/systemd/system/trojan.service" ]]; then
+        ${SYSTEMCTL_CMD} stop trojan
+    elif [[ -n "${SERVICE_CMD}" ]] || [[ -f "/etc/init.d/trojan" ]]; then
+        ${SERVICE_CMD} trojan stop
+    fi
+    if [[ $? -ne 0 ]]; then
+        colorEcho ${YELLOW} "Failed to shutdown Trojan service."
+        return 2
+    fi
+    return 0
+}
+
+function startTrojan(){
+    if [ -n "${SYSTEMCTL_CMD}" ] && [[ -f "/lib/systemd/system/trojan.service" || -f "/etc/systemd/system/trojan.service" ]]; then
+        ${SYSTEMCTL_CMD} start trojan
+    elif [ -n "${SERVICE_CMD}" ] && [ -f "/etc/init.d/trojan" ]; then
+        ${SERVICE_CMD} trojan start
+    fi
+    if [[ $? -ne 0 ]]; then
+        colorEcho ${YELLOW} "Failed to start Trojan service."
+        return 2
+    fi
+    return 0
+}
+
 if [[ $(id -u) != 0 ]]; then
     echo Please run this script as root.
     exit 1
@@ -22,32 +49,45 @@ if [[ $(uname -m 2> /dev/null) != x86_64 ]]; then
 fi
 
 NAME=trojan
-VERSION=1.15.1
-TARBALL="$NAME-$VERSION-linux-amd64.tar.xz"
-DOWNLOADURL="https://github.com/trojan-gfw/$NAME/releases/download/v$VERSION/$TARBALL"
+VER="$(/usr/local/bin/trojan -v 2>&1)"
+CUR_VER=$(echo $VER | grep -i "^welcome" |sed 's|^\(Welcome to trojan \)\([0-9]*\.[0-9]*\.[0-9]*$\)|\2|')
+NEW_VER=`curl -s https://api.github.com/repos/trojan-gfw/$NAME/releases/latest | grep 'tag_name' | cut -d\" -f4 | awk -F "v" '{print $2}'`
+
+if [[ $NEW_VER == $CUR_VER ]];then
+    echo "Already the latest version.";
+    exit    0;
+fi
+
+TARBALL="$NAME-$NEW_VER-linux-amd64.tar.xz"
+DOWNLOADURL="https://github.com/trojan-gfw/$NAME/releases/download/v$NEW_VER/$TARBALL"
 TMPDIR="$(mktemp -d)"
 INSTALLPREFIX=/usr/local
 SYSTEMDPREFIX=/etc/systemd/system
+SYSTEMCTL_CMD=$(command -v systemctl 2>/dev/null)
+SERVICE_CMD=$(command -v service 2>/dev/null)
 
 BINARYPATH="$INSTALLPREFIX/bin/$NAME"
 CONFIGPATH="$INSTALLPREFIX/etc/$NAME/config.json"
 SYSTEMDPATH="$SYSTEMDPREFIX/$NAME.service"
 
+OWCONFIG=False
+OWSYSTEMDPREFIX=True
+
 echo Entering temp directory $TMPDIR...
 cd "$TMPDIR"
 
-echo Downloading $NAME $VERSION...
+echo Downloading $NAME $NEW_VER...
 curl -LO --progress-bar "$DOWNLOADURL" || wget -q --show-progress "$DOWNLOADURL"
 
-echo Unpacking $NAME $VERSION...
+echo Unpacking $NAME $NEW_VER...
 tar xf "$TARBALL"
 cd "$NAME"
 
-echo Installing $NAME $VERSION to $BINARYPATH...
+echo Installing $NAME $NEW_VER to $BINARYPATH...
 install -Dm755 "$NAME" "$BINARYPATH"
 
 echo Installing $NAME server config to $CONFIGPATH...
-if ! [[ -f "$CONFIGPATH" ]] || prompt "The server config already exists in $CONFIGPATH, overwrite?"; then
+if ! [[ -f "$CONFIGPATH" ]] || $OWCONFIG "The server config already exists in $CONFIGPATH, overwrite?"; then
     install -Dm644 examples/server.json-example "$CONFIGPATH"
 else
     echo Skipping installing $NAME server config...
@@ -55,7 +95,7 @@ fi
 
 if [[ -d "$SYSTEMDPREFIX" ]]; then
     echo Installing $NAME systemd service to $SYSTEMDPATH...
-    if ! [[ -f "$SYSTEMDPATH" ]] || prompt "The systemd service already exists in $SYSTEMDPATH, overwrite?"; then
+    if ! [[ -f "$SYSTEMDPATH" ]] || $OWSYSTEMDPREFIX "The systemd service already exists in $SYSTEMDPATH, overwrite?"; then
         cat > "$SYSTEMDPATH" << EOF
 [Unit]
 Description=$NAME
@@ -73,7 +113,6 @@ RestartSec=1s
 [Install]
 WantedBy=multi-user.target
 EOF
-
         echo Reloading systemd daemon...
         systemctl daemon-reload
     else
@@ -83,5 +122,8 @@ fi
 
 echo Deleting temp directory $TMPDIR...
 rm -rf "$TMPDIR"
+
+stopTrojan
+startTrojan
 
 echo Done!
